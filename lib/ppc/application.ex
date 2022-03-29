@@ -6,6 +6,8 @@ defmodule Ppc.Application do
   use Application
   alias Ppc.Account
 
+  @env Mix.env()
+
   @impl true
   def start(_type, _args) do
     # See https://hexdocs.pm/elixir/Supervisor.html
@@ -23,19 +25,17 @@ defmodule Ppc.Application do
   end
 
   defp get_children do
-    case Mix.env() do
-      env when env in [:test, :prod] ->
-        [
-          {Finch, name: PpcFinch, pools: %{:default => [size: 4]}}
-        ]
+    cond do
+      @env in [:test, :prod] ->
+        [{Finch, name: PpcFinch, pools: %{:default => [size: 4]}}]
 
-      :dev ->
+      @env == :dev ->
         [
           {Finch, name: PpcFinch, pools: %{:default => [size: 4]}}
           # {Ppc.AccountStore, [accounts: &paypal_accounts/0]}
         ]
 
-      :dev_lib ->
+      @env == :dev_lib ->
         [
           {Finch, name: PpcFinch, pools: %{:default => [size: 4]}},
           {Ppc.AccountStore, [accounts: &paypal_accounts/0]}
