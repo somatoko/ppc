@@ -115,7 +115,8 @@ defmodule Ppc.Common do
 
   defp consume_map(map, acc_in, path \\ nil) do
     Enum.reduce(map, acc_in, fn {k, v}, acc ->
-      path_next = Atom.to_string(k)
+      # We need all keys to be strings
+      path_next = if is_atom(k), do: Atom.to_string(k), else: k
       path_next = if is_nil(path), do: path_next, else: Enum.join([path, path_next], ".")
 
       if is_map(v) do

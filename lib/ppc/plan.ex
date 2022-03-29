@@ -7,7 +7,7 @@ defmodule Ppc.Plan do
   - [Plan docs](https://developer.paypal.com/api/subscriptions/v1/#plans_list)
   """
 
-  alias Ppc.{Account, Client, Common}
+  alias Ppc.{Client, Common}
 
   @path "/v1/billing/plans"
 
@@ -53,16 +53,20 @@ defmodule Ppc.Plan do
         usage_type: "LICENSED"
       }
   """
-  @spec list(Account.t(), keyword) :: any
-  def list(account, opts \\ []) do
-    url = if opts[:product_id], do: @path <> "?product_id=#{opts[:product_id]}", else: @path
-    Client.get(account, url, opts)
+  @spec list(keyword) :: any
+  def list(opts \\ []) do
+    url =
+      if Keyword.has_key?(opts, :product_id),
+        do: @path <> "?product_id=#{opts[:product_id]}",
+        else: @path
+
+    Client.get(url, opts)
   end
 
-  @spec details(Account.t(), String.t()) :: any
-  def details(account, id) do
+  @spec details(String.t(), keyword) :: any
+  def details(id, opts \\ []) do
     url = @path <> "/#{id}"
-    Client.get(account, url)
+    Client.get(url, opts)
   end
 
   @doc """
@@ -72,12 +76,12 @@ defmodule Ppc.Plan do
 
   Fields marked with * are required.
 
-  - product_id*
-  - name*
-  - status allowed values `{CREATED|INACTIVE|ACTIVE}`. Subscriptions can be created only for ACTIVE plans.
-  - description
-  - billing_cycles*
-  - payment_preferences*
+  * product_id
+  * name
+  * status allowed values `{CREATED|INACTIVE|ACTIVE}`. Subscriptions can be created only for ACTIVE plans.
+  * description
+  * billing_cycles
+  * payment_preferences
   - taxes
   - quantity_supported
 
@@ -93,11 +97,10 @@ defmodule Ppc.Plan do
     {:error, reason}
     ```
   """
-  @spec create(Account.t(), map) :: any
-  @spec create(Account.t(), map, keyword) :: any
-  def create(account, data, opts \\ []) do
+  @spec create(map) :: any
+  @spec create(map, keyword) :: any
+  def create(data, opts \\ []) do
     Client.post(
-      account,
       @path,
       Ppc.Plan.PlanPrototype.prepare_for_transmission(data),
       headers: Common.construct_headers_for_create(opts)
@@ -122,8 +125,9 @@ defmodule Ppc.Plan do
 
       Plan.update(account, id, updates)
   """
-  @spec update(Account.t(), String.t(), map) :: any
-  def update(account, id, data) do
+  @spec update(String.t(), map) :: any
+  @spec update(String.t(), map, keyword) :: any
+  def update(id, data, opts \\ []) do
     accepted_fields = [
       "description",
       "payment_preferences.auto_bill_outstanding",
@@ -133,11 +137,11 @@ defmodule Ppc.Plan do
       "payment_preferences.setup_fee_failure_action"
     ]
 
-    {:ok, prev} = details(account, id)
+    {:ok, prev} = details(id, opts)
 
     # Do not flatten money struct/map
-    {fee_new, data} = pop_in(data, [:payment_preferences, :setup_fee])
-    {fee_prev, prev} = pop_in(prev, [:payment_preferences, :setup_fee])
+    {fee_new, data} = pop_in(data, ["payment_preferences", "setup_fee"])
+    {fee_prev, prev} = pop_in(prev, ["payment_preferences", "setup_fee"])
 
     data =
       Common.flat_keys(data)
@@ -145,7 +149,7 @@ defmodule Ppc.Plan do
       |> Common.normalize_atom_values()
 
     prev_data =
-      Map.take(prev, [:description, :payment_preferences, :taxes])
+      Map.take(prev, ["description", "payment_preferences", "taxes"])
       |> Common.flat_keys()
       |> Map.put("payment_preferences.setup_fee", fee_prev)
       |> Map.take(accepted_fields)
@@ -154,19 +158,25 @@ defmodule Ppc.Plan do
       Common.extract_field_changes(prev_data, data, accepted_fields)
       |> Common.construct_update_operations()
 
-    Client.patch(account, @path <> "/#{id}", changes)
+    case Client.patch(@path <> "/#{id}", changes, opts) do
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, reason} ->
+        {:error, Map.put_new(reason, "field", "summary")}
+    end
   end
 
-  @spec activate(Account.t(), String.t()) :: any
-  def activate(account, id) do
+  @spec activate(String.t(), keyword) :: any
+  def activate(id, opts) do
     url = @path <> "/#{id}/activate"
-    Client.post(account, url, nil)
+    Client.post(url, nil, opts)
   end
 
-  @spec deactivate(Account.t(), String.t()) :: any
-  def deactivate(account, id) do
+  @spec deactivate(String.t(), keyword) :: any
+  def deactivate(id, opts) do
     url = @path <> "/#{id}/deactivate"
-    Client.post(account, url, nil)
+    Client.post(url, nil, opts)
   end
 
   @doc """
@@ -225,9 +235,16 @@ defmodule Ppc.Plan do
     - It's impossible to add new schemes because frequency of each can't be changed iether.
 
   """
-  @spec update_pricing(Account.t(), String.t(), map) :: any
-  def update_pricing(account, id, data) do
+  @spec update_pricing(String.t(), map, keyword) :: any
+  def update_pricing(id, data, opts) do
     url = @path <> "/#{id}/update-pricing-schemes"
-    Client.post(account, url, data)
+
+    case Client.post(url, data, opts) do
+      {:ok, result} ->
+        {:ok, result}
+
+      {:error, reason} ->
+        {:error, Map.put_new(reason, "field", "summary")}
+    end
   end
 end

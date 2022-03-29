@@ -3,7 +3,7 @@ defmodule Ppc.ClientHTTP do
 
   @behaviour Ppc.Client
 
-  alias Ppc.ApiHost
+  alias Ppc.{Account, ApiHost}
 
   @impl Ppc.Client
   # @spec obtain_token(Ppc.Account.t()) :: {String.t() | nil, pos_integer()}
@@ -39,21 +39,29 @@ defmodule Ppc.ClientHTTP do
   end
 
   @impl Ppc.Client
-  def get(account, suffix, opts \\ []) do
-    make_request(account, suffix, :get, nil, opts)
+  def get(suffix, opts) do
+    make_request(suffix, :get, nil, opts)
   end
 
   @impl Ppc.Client
-  def post(account, path, data, opts \\ []) do
-    make_request(account, path, :post, data, opts)
+  def post(path, data, opts) do
+    make_request(path, :post, data, opts)
   end
 
   @impl Ppc.Client
-  def patch(account, path, data, opts \\ []) do
-    make_request(account, path, :patch, data, opts)
+  def patch(path, data, opts) do
+    make_request(path, :patch, data, opts)
   end
 
-  def make_request(account, suffix, method, data \\ nil, opts \\ []) do
+  @impl Ppc.Client
+  def delete(path, opts) do
+    make_request(path, :delete, nil, opts)
+  end
+
+  @spec make_request(String.t(), atom, map | nil, keyword()) :: {:ok, any} | {:error, any}
+  def make_request(suffix, method, data, opts) do
+    account = get_account(opts)
+
     url =
       (base_host(account) <> suffix)
       |> attach_url_params(opts[:params])
@@ -62,26 +70,42 @@ defmodule Ppc.ClientHTTP do
     headers = headers ++ Keyword.get(opts, :headers, [])
     body = data && Jason.encode!(data)
 
+    keys = Keyword.get(opts, :keys, :strings)
+
     Finch.build(method, url, headers, body)
     |> Finch.request(PpcFinch)
-    |> handle_finch_response(account: account, suffix: suffix, method: method, body: body)
+    |> handle_finch_response(
+      account: account,
+      suffix: suffix,
+      method: method,
+      data: data,
+      keys: keys
+    )
   end
 
-  def handle_finch_response(resp, opts \\ []) do
+  @spec handle_finch_response(any) :: {:ok, any} | {:error, any}
+  @spec handle_finch_response(any, keyword()) :: {:ok, any} | {:error, any}
+  def(handle_finch_response(resp, opts \\ [])) do
     case resp do
       {:ok, %{status: 200, body: body}} ->
-        {:ok, Jason.decode!(body, keys: :atoms)}
+        {:ok, Jason.decode!(body, keys: opts[:keys])}
 
       {:ok, %{status: 201, body: body}} ->
-        {:ok, Jason.decode!(body, keys: :atoms)}
+        {:ok, Jason.decode!(body, keys: opts[:keys])}
 
       {:ok, %{status: 204}} ->
         {:ok, :no_content}
 
       {:ok, %{status: 400, body: body}} ->
         body = Jason.decode!(body)
-        [details | _] = body["details"]
-        {:error, details}
+
+        case body["details"] do
+          [] ->
+            {:ok, :no_changes}
+
+          [details | _] ->
+            {:error, details}
+        end
 
       {:ok, %{status: 401, body: body}} ->
         Jason.decode!(body, keys: :atoms)
@@ -108,12 +132,12 @@ defmodule Ppc.ClientHTTP do
       {:error, %Mint.TransportError{reason: :closed}} ->
         Logger.warn("Ppc.ClientHTTP: closed socket; retrying in 1 sec.")
         Process.sleep(1000)
-        make_request(opts.account, opts.suffix, opts.method, opts.body)
+        make_request(opts.suffix, opts.method, opts.data, keys: opts.keys)
 
       {:error, %Mint.TransportError{reason: :timeout}} ->
         Logger.warn("Ppc.ClientHTTP: request timeout; retrying in 1 sec.")
         Process.sleep(1000)
-        make_request(opts.account, opts.suffix, opts.method, opts.body)
+        make_request(opts.suffix, opts.method, opts.data, keys: opts.keys)
 
       resp ->
         {:error, resp}
@@ -123,6 +147,7 @@ defmodule Ppc.ClientHTTP do
   @spec attach_url_params(String.t(), keyword()) :: String.t()
   def attach_url_params(url, opts \\ []) do
     opts = if is_nil(opts), do: [], else: opts
+    # params = URI.encode_query(opts) |> String.replace("%3A", ":")
     params = URI.encode_query(opts)
 
     params =
@@ -196,5 +221,18 @@ defmodule Ppc.ClientHTTP do
         NaiveDateTime.add(NaiveDateTime.utc_now(), 30)
     end
     |> NaiveDateTime.diff(NaiveDateTime.utc_now())
+  end
+
+  def get_account(opts) do
+    cond do
+      Keyword.has_key?(opts, :account) ->
+        Ppc.Account.get(opts[:account])
+
+      not is_nil(Ppc.Account.get(:default)) ->
+        Ppc.Account.get(:default)
+
+      true ->
+        raise ArgumentError, message: "No paypal account supplied."
+    end
   end
 end

@@ -2,7 +2,7 @@ defmodule Ppc.Product do
   @moduledoc """
   Documentation for Ppc.Product
   """
-  alias Ppc.{Account, Client, Common}
+  alias Ppc.{Client, Common}
 
   @path "/v1/catalogs/products"
 
@@ -38,9 +38,9 @@ defmodule Ppc.Product do
         links: %{href: _, method: _, rel: _}
       }
   """
-  @spec list(Account.t(), keyword()) :: any
-  def list(account, opts \\ []) do
-    Client.get(account, @path, opts)
+  @spec list(keyword()) :: any
+  def list(opts \\ []) do
+    Client.get(@path, opts)
   end
 
   @doc """
@@ -77,9 +77,9 @@ defmodule Ppc.Product do
         update_time: "2021-08-28T15:30:21Z"
       }
   """
-  @spec get_details(Account.t(), String.t()) :: any
-  def get_details(account, id) do
-    Client.get(account, "#{@path}/#{id}")
+  @spec details(String.t()) :: any
+  def details(id, opts \\ []) do
+    Client.get("#{@path}/#{id}", opts)
   end
 
   @doc """
@@ -104,9 +104,9 @@ defmodule Ppc.Product do
   ## Reference
   - [Create API docs](https://developer.paypal.com/api/catalog-products/v1/#products_create)
   """
-  @spec create(Account.t(), map) :: any
-  @spec create(Account.t(), map, keyword) :: any
-  def create(account, data, opts \\ []) do
+  @spec create(map) :: any
+  @spec create(map, keyword) :: any
+  def create(data, opts \\ []) do
     headers = Common.construct_headers_for_create(opts)
 
     # Omit empty fields
@@ -115,7 +115,7 @@ defmodule Ppc.Product do
       |> Enum.filter(fn {_k, v} -> v != "" end)
       |> Map.new()
 
-    Client.post(account, @path, data, headers: headers)
+    Client.post(@path, data, headers: headers)
   end
 
   @doc """
@@ -134,14 +134,14 @@ defmodule Ppc.Product do
     - `{:ok, :no_content}`
     - `{:error, reason}`
   """
-  @spec update(Account.t(), String.t(), map) :: {:ok, map} | {:error, any}
-  def update(account, id, product) do
-    {:ok, prev} = get_details(account, id)
+  @spec update(String.t(), map, keyword) :: {:ok, map} | {:error, any}
+  def update(id, product, opts) do
+    {:ok, prev} = details(id, opts)
 
     changes =
       Common.extract_field_changes(prev, product, [:description, :category, :image_url, :home_url])
       |> Common.construct_update_operations()
 
-    Client.patch(account, @path <> "/#{id}", changes)
+    Client.patch(@path <> "/#{id}", changes, opts)
   end
 end
